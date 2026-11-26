@@ -1,0 +1,114 @@
+name: Build XiaoShuYuan apps
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  android:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Find and extract uploaded project ZIP
+        shell: bash
+        run: |
+          ZIP="$(find . -maxdepth 1 -type f -name 'xiaoshuyuan_flutter_v2_1_android_ios_build.zip' -print -quit)"
+          if [ -z "$ZIP" ]; then
+            echo "Project ZIP not found in repository root."
+            exit 1
+          fi
+          mkdir -p source
+          unzip -q "$ZIP" -d source
+          echo "PROJECT_DIR=$GITHUB_WORKSPACE/source/xiaoshuyuan_flutter" >> "$GITHUB_ENV"
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Generate Android platform files
+        working-directory: source/xiaoshuyuan_flutter
+        run: flutter create --platforms=android --org com.xiaoshuyuan .
+
+      - name: Set app display name
+        working-directory: source/xiaoshuyuan_flutter
+        run: |
+          sed -i 's/android:label="xiaoshuyuan"/android:label="小书苑"/' android/app/src/main/AndroidManifest.xml
+
+      - name: Resolve packages
+        working-directory: source/xiaoshuyuan_flutter
+        run: flutter pub get
+
+      - name: Build release APK
+        working-directory: source/xiaoshuyuan_flutter
+        run: flutter build apk --release
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: xiaoshuyuan-android-apk
+          path: source/xiaoshuyuan_flutter/build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
+          retention-days: 14
+
+  ios:
+    name: Build iOS app (unsigned)
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Find and extract uploaded project ZIP
+        shell: bash
+        run: |
+          ZIP="$(find . -maxdepth 1 -type f -name 'xiaoshuyuan_flutter_v2_1_android_ios_build.zip' -print -quit)"
+          if [ -z "$ZIP" ]; then
+            echo "Project ZIP not found in repository root."
+            exit 1
+          fi
+          mkdir -p source
+          unzip -q "$ZIP" -d source
+          echo "PROJECT_DIR=$GITHUB_WORKSPACE/source/xiaoshuyuan_flutter" >> "$GITHUB_ENV"
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Generate iOS platform files
+        working-directory: source/xiaoshuyuan_flutter
+        run: flutter create --platforms=ios --org com.xiaoshuyuan .
+
+      - name: Set app display name
+        working-directory: source/xiaoshuyuan_flutter
+        run: /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName 小书苑" ios/Runner/Info.plist
+
+      - name: Resolve packages
+        working-directory: source/xiaoshuyuan_flutter
+        run: flutter pub get
+
+      - name: Build iOS app without signing
+        working-directory: source/xiaoshuyuan_flutter
+        run: flutter build ios --release --no-codesign
+
+      - name: Package unsigned iOS app
+        run: |
+          cd source/xiaoshuyuan_flutter/build/ios/iphoneos
+          /usr/bin/zip -r "$GITHUB_WORKSPACE/xiaoshuyuan-ios-unsigned.zip" Runner.app
+
+      - name: Upload unsigned iOS app
+        uses: actions/upload-artifact@v4
+        with:
+          name: xiaoshuyuan-ios-unsigned
+          path: xiaoshuyuan-ios-unsigned.zip
+          if-no-files-found: error
+          retention-days: 14
